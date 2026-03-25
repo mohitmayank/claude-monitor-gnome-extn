@@ -159,6 +159,32 @@
       <description>Comma-separated order of panel elements: icon, label, bar, dot. Controls the left-to-right arrangement.</description>
     </key>
 
+    <!-- Authentication / data source -->
+
+    <key name="data-source" type="s">
+      <default>'local'</default>
+      <summary>Data source</summary>
+      <description>Where to read usage data: "local" (JSONL files) or "api" (Claude.ai API).</description>
+    </key>
+
+    <key name="session-key" type="s">
+      <default>''</default>
+      <summary>Claude.ai session key</summary>
+      <description>Value of the sessionKey cookie from claude.ai, used to authenticate API requests.</description>
+    </key>
+
+    <key name="auto-read-browser" type="b">
+      <default>false</default>
+      <summary>Auto-read session key from browser</summary>
+      <description>Automatically read the sessionKey cookie from Google Chrome instead of using a manually entered value.</description>
+    </key>
+
+    <key name="org-id" type="s">
+      <default>''</default>
+      <summary>Organization ID</summary>
+      <description>Claude.ai organization UUID, found in the usage API URL.</description>
+    </key>
+
     <!-- Custom color -->
 
     <key name="custom-color-start" type="s">

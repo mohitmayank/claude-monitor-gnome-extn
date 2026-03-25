@@ -1,6 +1,7 @@
 import GLib from "gi://GLib";
 import GObject from "gi://GObject";
 import Gio from "gi://Gio";
+import Soup from "gi://Soup";
 import St from "gi://St";
 import Clutter from "gi://Clutter";
 
@@ -646,6 +647,14 @@ const ClaudeMonitorIndicator = GObject.registerClass(
       this._extensionPath = extension.path;
       this._isPulsing = false;
       this._burnHistory = [];
+      this._soupSession = new Soup.Session();
+
+      // Auto-read session key from Chrome on startup if enabled
+      if (this._settings.get_boolean("auto-read-browser")) {
+        this._readChromeSessionKey((key, _err) => {
+          if (key) this._settings.set_string("session-key", key);
+        });
+      }
 
       // Panel box
       this._box = new St.BoxLayout({ style_class: "panel-status-menu-box" });
@@ -1604,9 +1613,16 @@ const ClaudeMonitorIndicator = GObject.registerClass(
     // ── Refresh ──────────────────────────────────────────────
 
     _refresh() {
-      // Brief spin animation on refresh
       this._spinIcon();
+      const dataSource = this._settings.get_string("data-source");
+      if (dataSource === "api") {
+        this._refreshFromApi();
+      } else {
+        this._refreshFromLocal();
+      }
+    }
 
+    _refreshFromLocal() {
       const basePath = GLib.get_home_dir() + "/.claude/projects";
       const now = new Date();
       const nowMs = now.getTime();
@@ -1634,7 +1650,6 @@ const ClaudeMonitorIndicator = GObject.registerClass(
       const resetMs = windowEnd - nowMs;
       const resetMinutes = Math.max(0, resetMs / 60000);
 
-      // Track burn history for sparkline
       this._burnHistory.push(stats.burnRateCostH);
       if (this._burnHistory.length > 20)
         this._burnHistory = this._burnHistory.slice(-20);
@@ -1642,21 +1657,184 @@ const ClaudeMonitorIndicator = GObject.registerClass(
       this._updateDisplay(stats, resetMinutes);
     }
 
+    _readChromeSessionKey(callback) {
+      const script = this._extensionPath + "/cookie-helper.py";
+      let proc;
+      try {
+        proc = new Gio.Subprocess({
+          argv: ["python3", script],
+          flags:
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+        });
+        proc.init(null);
+      } catch (e) {
+        callback(null, `Failed to spawn python3: ${e.message}`);
+        return;
+      }
+
+      proc.communicate_utf8_async(null, null, (p, result) => {
+        try {
+          const [, stdout] = p.communicate_utf8_finish(result);
+          const data = JSON.parse((stdout || "").trim() || "{}");
+          if (data.key) callback(data.key, null);
+          else callback(null, data.error || "Unknown error from cookie-helper");
+        } catch (e) {
+          callback(null, `cookie-helper parse error: ${e.message}`);
+        }
+      });
+    }
+
+    _fetchApiUsage(callback, isRetry = false) {
+      const sessionKey = this._settings.get_string("session-key");
+      const orgId = this._settings.get_string("org-id");
+
+      if (!sessionKey || !orgId) {
+        callback(null, "session-key and org-id required");
+        return;
+      }
+
+      const url = `https://claude.ai/api/organizations/${orgId}/usage`;
+      let msg;
+      try {
+        msg = Soup.Message.new("GET", url);
+      } catch (e) {
+        callback(null, `Bad URL: ${e.message}`);
+        return;
+      }
+
+      msg.request_headers.append("Cookie", `sessionKey=${sessionKey}`);
+      msg.request_headers.append("Accept", "application/json");
+      msg.request_headers.append(
+        "User-Agent",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+      );
+
+      this._soupSession.send_and_read_async(
+        msg,
+        GLib.PRIORITY_DEFAULT,
+        null,
+        (session, result) => {
+          let bytes;
+          try {
+            bytes = session.send_and_read_finish(result);
+          } catch (e) {
+            callback(null, `Network error: ${e.message}`);
+            return;
+          }
+
+          const status = msg.get_status();
+          const text = bytes
+            ? new TextDecoder("utf-8").decode(bytes.get_data())
+            : "";
+
+          // On 401/403, try refreshing the key from Chrome once
+          if (
+            (status === Soup.Status.UNAUTHORIZED ||
+              status === Soup.Status.FORBIDDEN) &&
+            !isRetry &&
+            this._settings.get_boolean("auto-read-browser")
+          ) {
+            this._readChromeSessionKey((key, err) => {
+              if (key) {
+                this._settings.set_string("session-key", key);
+                this._fetchApiUsage(callback, true);
+              } else {
+                callback(null, `HTTP ${status}, key refresh failed: ${err}`);
+              }
+            });
+            return;
+          }
+
+          if (status !== Soup.Status.OK) {
+            callback(null, `HTTP ${status}`);
+            return;
+          }
+
+          try {
+            callback(JSON.parse(text), null);
+          } catch (e) {
+            callback(null, "JSON parse error");
+          }
+        },
+      );
+    }
+
+    _statsFromApiData(data, nowMs) {
+      const fiveHour = data.five_hour;
+      if (!fiveHour) return { stats: _calculateStats([]), resetMinutes: null };
+
+      // utilization is 0–100 (percentage)
+      const fraction = (fiveHour.utilization ?? 0) / 100;
+
+      let resetMinutes = null;
+      if (fiveHour.resets_at) {
+        const resetMs = new Date(fiveHour.resets_at).getTime();
+        if (!isNaN(resetMs))
+          resetMinutes = Math.max(0, (resetMs - nowMs) / 60000);
+      }
+
+      // Scale billableTokens and totalCost to plan limits × fraction so the
+      // existing (used / limit) calculation in _updateDisplay yields the
+      // correct percentage without modification.
+      const planType = this._settings.get_string("plan-type");
+      const plan = PLAN_LIMITS[planType];
+      const billableTokens = plan ? Math.round(plan.tokens * fraction) : 0;
+      const totalCost = plan ? plan.cost * fraction : 0;
+
+      const stats = {
+        totalInput: billableTokens,
+        totalOutput: 0,
+        totalCacheCreate: 0,
+        totalCacheRead: 0,
+        totalTokens: billableTokens,
+        billableTokens,
+        totalCost,
+        burnRateTokensH: 0,
+        burnRateCostH: 0,
+        durationMinutes: 0,
+        activeModel: "",
+        entryCount: fraction > 0 ? 1 : 0,
+      };
+
+      return { stats, resetMinutes };
+    }
+
+    _refreshFromApi() {
+      const nowMs = Date.now();
+      this._fetchApiUsage((data, err) => {
+        if (err || !data) {
+          const stats = _calculateStats([]);
+          this._updateDisplay(stats, null);
+          return;
+        }
+
+        const { stats, resetMinutes } = this._statsFromApiData(data, nowMs);
+
+        this._burnHistory.push(stats.burnRateCostH);
+        if (this._burnHistory.length > 20)
+          this._burnHistory = this._burnHistory.slice(-20);
+
+        this._updateDisplay(stats, resetMinutes, true);
+      });
+    }
+
     // ── Main display update ──────────────────────────────────
 
-    _updateDisplay(stats, resetMinutes) {
+    _updateDisplay(stats, resetMinutes, skipScale = false) {
       const planType = this._settings.get_string("plan-type");
       const plan = PLAN_LIMITS[planType];
       const barMetric = this._settings.get_string("bar-metric");
 
-      // Apply estimation scale factor
-      const estMode = this._settings.get_string("estimation-mode");
-      const scaleFactor =
-        ESTIMATION_MODES[estMode] || ESTIMATION_MODES["balanced"];
-      stats.totalCost *= scaleFactor;
-      stats.billableTokens = Math.round(stats.billableTokens * scaleFactor);
-      stats.burnRateCostH *= scaleFactor;
-      stats.burnRateTokensH *= scaleFactor;
+      // Apply estimation scale factor (skipped for API data — already exact)
+      if (!skipScale) {
+        const estMode = this._settings.get_string("estimation-mode");
+        const scaleFactor =
+          ESTIMATION_MODES[estMode] || ESTIMATION_MODES["balanced"];
+        stats.totalCost *= scaleFactor;
+        stats.billableTokens = Math.round(stats.billableTokens * scaleFactor);
+        stats.burnRateCostH *= scaleFactor;
+        stats.burnRateTokensH *= scaleFactor;
+      }
 
       // Calculate time remaining
       let timeRemainingMin = Infinity;
@@ -2040,6 +2218,10 @@ const ClaudeMonitorIndicator = GObject.registerClass(
     destroy() {
       this._stopTimer();
       this._isPulsing = false;
+      if (this._soupSession) {
+        this._soupSession.abort();
+        this._soupSession = null;
+      }
       if (this._pulseTimerId) {
         GLib.source_remove(this._pulseTimerId);
         this._pulseTimerId = null;
