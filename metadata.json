@@ -4,5 +4,6 @@
   "uuid": "claude-monitor@mohitmayank",
   "shell-version": ["46", "47", "48"],
   "settings-schema": "org.gnome.shell.extensions.claude-monitor",
+  "url": "https://github.com/mohitmayank/claude-monitor-gnome-extn",
   "version": 1
 }
