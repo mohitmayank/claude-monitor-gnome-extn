@@ -1,7 +1,6 @@
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';
-import Gio from 'gi://Gio';
 
 import { ExtensionPreferences } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
@@ -82,61 +81,6 @@ export default class ClaudeMonitorPreferences extends ExtensionPreferences {
             settings.set_string('bar-metric', metricKeys[metricRow.get_selected()]);
         });
         metricGroup.add(metricRow);
-
-        // -- Authentication group --
-        const authGroup = new Adw.PreferencesGroup({
-            title: 'Data Source',
-            description: 'Use local JSONL files or fetch live data from the Claude.ai API.',
-        });
-        page.add(authGroup);
-
-        const sourceRow = new Adw.ComboRow({
-            title: 'Data Source',
-            subtitle: 'Local reads ~/.claude/projects JSONL files. API fetches from Claude.ai.',
-        });
-        const sourceModel = Gtk.StringList.new(['Local files (JSONL)', 'Claude.ai API']);
-        sourceRow.set_model(sourceModel);
-        const sourceKeys = ['local', 'api'];
-        sourceRow.set_selected(Math.max(0, sourceKeys.indexOf(settings.get_string('data-source'))));
-        sourceRow.connect('notify::selected', () => {
-            settings.set_string('data-source', sourceKeys[sourceRow.get_selected()]);
-        });
-        authGroup.add(sourceRow);
-
-        const orgIdRow = new Adw.EntryRow({
-            title: 'Organization ID',
-        });
-        orgIdRow.set_text(settings.get_string('org-id'));
-        orgIdRow.connect('notify::text', () => {
-            settings.set_string('org-id', orgIdRow.get_text().trim());
-        });
-        authGroup.add(orgIdRow);
-
-        const autoReadRow = new Adw.SwitchRow({
-            title: 'Auto-read from Chrome',
-            subtitle: 'Read sessionKey automatically from Google Chrome — no manual paste needed.',
-        });
-        settings.bind('auto-read-browser', autoReadRow, 'active', 0);
-        authGroup.add(autoReadRow);
-
-        const sessionKeyRow = new Adw.PasswordEntryRow({
-            title: 'Session Key',
-            subtitle: 'Used when auto-read is off.',
-        });
-        sessionKeyRow.set_text(settings.get_string('session-key'));
-        sessionKeyRow.connect('notify::text', () => {
-            settings.set_string('session-key', sessionKeyRow.get_text().trim());
-        });
-        settings.bind('auto-read-browser', sessionKeyRow, 'sensitive',
-            Gio.SettingsBindFlags.DEFAULT | Gio.SettingsBindFlags.INVERT_BOOLEAN);
-        authGroup.add(sessionKeyRow);
-
-        const authHintRow = new Adw.ActionRow({
-            title: 'Auto-read requirements',
-            subtitle: 'Needs python3-cryptography (v10 cookies) and python3-secretstorage (v11). Install with: sudo apt install python3-cryptography python3-secretstorage',
-            activatable: false,
-        });
-        authGroup.add(authHintRow);
 
         // -- General group --
         const generalGroup = new Adw.PreferencesGroup({
