@@ -25,14 +25,14 @@ It reads the JSONL data files (`~/.claude/projects/**/*.jsonl`) that Claude Code
 1. Clone or download this repository:
 
    ```bash
-   git clone https://github.com/YOUR_USERNAME/claude-monitor-gnome-extension.git
+   git clone git@github.com:mohitmayank/claude-monitor-gnome-extn.git
    ```
 
 2. Create a symlink to the GNOME Shell extensions directory:
 
    ```bash
    ln -s /path/to/claude-token-monitor \
-     ~/.local/share/gnome-shell/extensions/claude-monitor@miferco97
+     ~/.local/share/gnome-shell/extensions/claude-monitor@mohitmayank
    ```
 
 3. Compile the GSettings schema:
@@ -48,7 +48,7 @@ It reads the JSONL data files (`~/.claude/projects/**/*.jsonl`) that Claude Code
 5. Enable the extension:
 
    ```bash
-   gnome-extensions enable claude-monitor@miferco97
+   gnome-extensions enable claude-monitor@mohitmayank
    ```
 
 ## Configuration
@@ -58,7 +58,7 @@ It reads the JSONL data files (`~/.claude/projects/**/*.jsonl`) that Claude Code
 Open the preferences window from the dropdown menu ("Settings") or via:
 
 ```bash
-gnome-extensions prefs claude-monitor@miferco97
+gnome-extensions prefs claude-monitor@mohitmayank
 ```
 
 ### Subscription Plan

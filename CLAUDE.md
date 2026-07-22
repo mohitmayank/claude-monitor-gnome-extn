@@ -31,7 +31,7 @@ A compact GNOME Shell 48 taskbar indicator that monitors Claude Code token usage
 - `stylesheet.css` — Panel styling (pill variants, font sizes, status classes)
 - `schemas/` — GSettings schema for user preferences
 - `icons/` — Claude logo PNGs (16px, 32px, 48px) + claude-symbolic.svg
-- Installed via symlink from `~/.local/share/gnome-shell/extensions/claude-monitor@miferco97/`
+- Installed via symlink from `~/.local/share/gnome-shell/extensions/claude-monitor@mohitmayank/`
 
 ## Token & Cost Measurement
 
